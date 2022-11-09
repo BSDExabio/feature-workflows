@@ -55,7 +55,8 @@ def validate_input_files(proteinID_model_qualities,
 
     # second, check the alignment results
     key = toolz.first(proteinID_aln_results.keys())
-    if not set(['Len1','Len2','RMSD','TMscore1','TMscore2']) <= set(proteinID_aln_results[key].keys()):
+    if not set(['Len1', 'Len2', 'RMSD', 'TMscore1', 'TMscore2']) <= \
+           set(proteinID_aln_results[key].keys()):
         logger.critical(f'Invalid alignment results file')
         sys.exit(2)
 
@@ -66,7 +67,8 @@ def validate_input_files(proteinID_model_qualities,
 
     # finally, check the UniProt metadata
     key = toolz.first(UniProt_metadata_dict.keys())
-    if not set(['entry_name', 'status', 'features', 'sequence']) <= set(UniProt_metadata_dict[key].keys()):
+    if not set(['entry_name', 'status', 'features', 'sequence']) <= \
+           set(UniProt_metadata_dict[key].keys()):
         logger.critical(f'Invalid UniProp metadata file')
         sys.exit(4)
 
@@ -74,15 +76,15 @@ def validate_input_files(proteinID_model_qualities,
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description = 'Utility for finding active '
-                                     'sites for proteins processed '
-                                     'by alphafold2')
+    parser = argparse.ArgumentParser(description='Utility for finding active '
+                                                 'sites for proteins processed '
+                                                 'by alphafold2')
 
     parser.add_argument('model_quality', help='Model quality pickle file')
     parser.add_argument('alignment_results',
-                        help = 'Alignment results pickle file')
+                        help='Alignment results pickle file')
     parser.add_argument('pdb_to_uniprot',
-                        help = 'PDB to UniProt mapping pickle file')
+                        help='PDB to UniProt mapping pickle file')
     parser.add_argument('uniprot_metadata', help='UniProt metadata pickle file')
 
     args = parser.parse_args()
