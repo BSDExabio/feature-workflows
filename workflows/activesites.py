@@ -11,6 +11,7 @@ import logging
 import sys
 
 import toolz
+import pandas as pd
 
 from rich.logging import RichHandler
 
@@ -94,9 +95,19 @@ if __name__ == '__main__':
     PDBID_to_UniProt_map = load_pickle_file(args.pdb_to_uniprot)
     UniProt_metadata_dict = load_pickle_file(args.uniprot_metadata)
 
+    # Ensure we got the right data loaded from those pickle files by doing
+    # things like checking for dictionary keys and the number of rows. I.e., we
+    # don't want to get too far into this having one or more of these be wrong.
     validate_input_files(proteinID_model_qualities,
                          proteinID_aln_results,
                          PDBID_to_UniProt_map,
                          UniProt_metadata_dict)
+
+    # Find all of the alphafold proteins that have high quality predicted
+    # confidence as denoted by ptms scores > .7
+    # TODO Make .7 an optional command line argument
+    af_candidates = toolz.valfilter(lambda x: x['ptms'] > 0.7,
+                                    proteinID_model_qualities)
+
 
     logger.info('Done')
