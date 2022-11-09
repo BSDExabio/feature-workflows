@@ -34,25 +34,31 @@ def validate_input_files(proteinID_model_qualities,
 
     We do that by checking for certain data structure features by file.
 
+    We will immediately exit if we don't find certain features
+
     :param proteinID_model_qualities:
     :param proteinID_aln_results:
     :param PDBID_to_UniProt_map:
     :param UniProt_metadata_dict:
-    :return:
+    :return: None
     """
     # first check the alphafold model qualities dict
     key = toolz.first(proteinID_model_qualities.keys())
 
     if not set(['model_name', 'ptms', 'plddts', 'iterations']) == \
-           set(proteinID_model_qualities[key].keys())):
+           set(proteinID_model_qualities[key].keys()):
         logger.critical(f'Invalid model quality file')
-    sys.exit(1)
+        sys.exit(1)
 
     # second, check the alignment results
+    key = toolz.first(proteinID_aln_results.keys())
 
     # third, check the PDBID to UniProt mapping dict
+    key = toolz.first(PDBID_to_UniProt_map.keys())
 
     # finally, check the UniProt metadata
+    key = toolz.first(UniProt_metadata_dict.keys())
+
     return
 
 
@@ -79,3 +85,5 @@ if __name__ == '__main__':
                          proteinID_aln_results,
                          PDBID_to_UniProt_map,
                          UniProt_metadata_dict)
+
+    pass
