@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """ Given a set of Alphafold2 proteins, find any active sites as identified
 by similar proteins found via tmalign and uniprot.
+
+Exits with a 0 if ok, 1 if the model quality file is wrong, 2 if the alignment
+results files is wrong, and 3 if the UniProp metadata file is wrong.
 """
 import argparse
 import pickle
@@ -52,12 +55,20 @@ def validate_input_files(proteinID_model_qualities,
 
     # second, check the alignment results
     key = toolz.first(proteinID_aln_results.keys())
+    if not set(['Len1','Len2','RMSD','TMscore1','TMscore2']) <= set(proteinID_aln_results[key].keys()):
+        logger.critical(f'Invalid alignment results file')
+        sys.exit(2)
 
     # third, check the PDBID to UniProt mapping dict
-    key = toolz.first(PDBID_to_UniProt_map.keys())
+    if len(PDBID_to_UniProt_map.keys()) < 84000:
+        logger.critical(f'Invalid PDB to UniProt mapping file')
+        sys.exit(3)
 
     # finally, check the UniProt metadata
     key = toolz.first(UniProt_metadata_dict.keys())
+    if not set(['entry_name', 'status', 'features', 'sequence']) <= set(UniProt_metadata_dict[key].keys()):
+        logger.critical(f'Invalid UniProp metadata file')
+        sys.exit(4)
 
     return
 
@@ -69,9 +80,9 @@ if __name__ == '__main__':
 
     parser.add_argument('model_quality', help='Model quality pickle file')
     parser.add_argument('alignment_results',
-    help = 'Alignment results pickle file')
+                        help = 'Alignment results pickle file')
     parser.add_argument('pdb_to_uniprot',
-    help = 'PDB to UniProt mapping pickle file')
+                        help = 'PDB to UniProt mapping pickle file')
     parser.add_argument('uniprot_metadata', help='UniProt metadata pickle file')
 
     args = parser.parse_args()
@@ -86,4 +97,4 @@ if __name__ == '__main__':
                          PDBID_to_UniProt_map,
                          UniProt_metadata_dict)
 
-    pass
+    logger.info('Done')
