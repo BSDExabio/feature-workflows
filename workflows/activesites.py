@@ -20,7 +20,7 @@ from rich.logging import RichHandler
 # Create unique logger for this namespace
 rich_handler = RichHandler(rich_tracebacks=True,
                            markup=True)
-logging.basicConfig(level='CRITICAL', format='%(message)s',
+logging.basicConfig(level='INFO', format='%(message)s',
                     datefmt="[%Y/%m/%d %H:%M:%S]",
                     handlers=[rich_handler])
 logger = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ def get_ids(af_candidates, proteinID_aln_results, PDBID_to_UniProt_map):
             pdbid = Path(pdbid_path).stem
             uniprotid = PDBID_to_UniProt_map.get(pdbid, None)
             if uniprotid is None:
-                logger.warning(f'{pdbid} has no corresponding UniProt ID ...skipping')
+                logger.debug(f'{pdbid} has no corresponding UniProt ID ...skipping')
                 total_skipped += 1
                 continue
             af_candidates[protein]['pdbids'][pdbid] = {'ecIDs'   : set([]),
