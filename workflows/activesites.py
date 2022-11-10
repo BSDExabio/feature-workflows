@@ -86,14 +86,24 @@ def get_pdbids(af_candidates, proteinID_aln_results):
     rows = [] # will container rows of dicts to convert to dataframe
 
     for protein in af_candidates.keys():
+        af_candidates[protein]['pdbids'] = []
         for pdbid_path in proteinID_aln_results[protein]['Target Path']:
-            row = {'protein' : protein,
-                   'pdbid' : Path(pdbid_path).stem}
-            # We need to append copy else we're going to just have the same
-            # record duplicated in all the rows due to overwriting.
-            rows.append(row.copy())
+            # Target Path is just a capture of the fully qualified path to a
+            # PDB file for a protein.  So we use path string manipulation to
+            # extract the PDB ID, which is just the path stem.
+            af_candidates[protein]['pdbids'].append(Path(pdbid_path).stem)
 
-    return pd.DataFrame(rows)
+    return af_candidates
+
+
+def extact_uniprot_info(af_pdbids, UniProt_metadata_dict):
+    """ Look up intersting UniProt information by PDB ID
+
+    :param af_pdbids: from which to cross-reference
+    :param UniProt_metadata_dict: of UniProt in which to look up IDs
+    :return: interesting UniProt info
+    """
+    return None
 
 
 
@@ -130,10 +140,14 @@ if __name__ == '__main__':
     af_candidates = toolz.valfilter(lambda x: x['ptms'] > 0.7,
                                     proteinID_model_qualities)
 
-    logger.info(f'Have {len(af_candidates)} AF candidates out of {len(proteinID_model_qualities)}')
+    logger.info(f'Have {len(af_candidates)} AF candidates out of '
+                f'{len(proteinID_model_qualities)} proteins')
 
     # Next we grab all the corresponding PDB IDs for those candidates to later
     # use for looking up info in UniProt.
-    af_pdbids = get_pdbids(af_candidates, proteinID_aln_results)
+    af_with_pdbids = get_pdbids(af_candidates, proteinID_aln_results)
+
+    # Now we extract all the goodness from UniProt for each PDB ID
+    results = extact_uniprot_info(af_with_pdbids, UniProt_metadata_dict)
 
     logger.info('Done')
