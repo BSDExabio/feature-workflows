@@ -86,6 +86,7 @@ def get_ids(af_candidates, proteinID_aln_results, PDBID_to_UniProt_map):
         :param PDBID_to_UniProt_map: to look up UniProt ID for PDB IDs
         :returns: updated af_candidates dict with ['pdbids'] a list of PDB Is
     """
+    total_skipped = 0 # total skipped because no UniProt ID could be found
     for protein in af_candidates.keys():
         af_candidates[protein]['pdbids'] = {}
         af_candidates[protein]['maxTMscore'] = proteinID_aln_results[protein]['maxTMscore']
@@ -97,13 +98,16 @@ def get_ids(af_candidates, proteinID_aln_results, PDBID_to_UniProt_map):
             uniprotid = PDBID_to_UniProt_map.get(pdbid, None)
             if uniprotid is None:
                 logger.warning(f'{pdbid} has no corresponding UniProt ID ...skipping')
+                total_skipped += 1
                 continue
             af_candidates[protein]['pdbids'][pdbid] = {'ecIDs'   : [],
                                                        'UniProt' : uniprotid,
                                                        'ACT_SITE': None,
                                                        'BINDING' : None}
+    if total_skipped > 0:
+        logger.warning(f'Skipped {total_skipped} PDB IDs because no corresponding UniProt ID could be found')
 
-    return toolz.valfilter(lambda x: x['pdbids'] != [], af_candidates)
+    return toolz.valfilter(lambda x: x['pdbids'] != {}, af_candidates)
 
 
 def extract_uniprot_info(af_pdbids, UniProt_metadata_dict):
@@ -113,19 +117,16 @@ def extract_uniprot_info(af_pdbids, UniProt_metadata_dict):
     :param UniProt_metadata_dict: of UniProt in which to look up IDs
     :return: interesting UniProt info
     """
-    for af_protein in af_candidates.keys():
-        for pdb_protein in af_candidates[af_protein]['pdbids'].keys():
-            if pdb_protein not in UniProt_metadata_dict:
-                logger.warning(f'{pdb_protein} not in UniProt dictionary.')
-                continue
-            if UniProt_metadata_dict[pdb_protein]['ecIDs'] == []:
+    for af_value in af_pdbids.values():
+        for pdb_value in af_value['pdbids'].values():
+            uniprot = pdb_value['UniProt']
+            if UniProt_metadata_dict[uniprot]['ecIDs'] == []:
                 # Skip any UniProt proteins that are not enzymes
                 continue
             # Add all the enzymes to 'ecIDs' list
-            af_candidates[af_protein]['pdbids']
+            # af_candidates[af_protein]['pdbids']
 
-
-    return None
+    return af_pdbids
 
 
 
