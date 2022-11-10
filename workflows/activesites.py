@@ -20,7 +20,7 @@ from rich.logging import RichHandler
 # Create unique logger for this namespace
 rich_handler = RichHandler(rich_tracebacks=True,
                            markup=True)
-logging.basicConfig(level='INFO', format='%(message)s',
+logging.basicConfig(level='CRITICAL', format='%(message)s',
                     datefmt="[%Y/%m/%d %H:%M:%S]",
                     handlers=[rich_handler])
 logger = logging.getLogger(__name__)
@@ -102,8 +102,8 @@ def get_ids(af_candidates, proteinID_aln_results, PDBID_to_UniProt_map):
                 continue
             af_candidates[protein]['pdbids'][pdbid] = {'ecIDs'   : set([]),
                                                        'UniProt' : uniprotid,
-                                                       'ACT_SITE': None,
-                                                       'BINDING' : None}
+                                                       'ACT_SITE': [],
+                                                       'BINDING' : []}
     if total_skipped > 0:
         logger.warning(f'Skipped {total_skipped} PDB IDs because no corresponding UniProt ID could be found')
 
@@ -130,6 +130,12 @@ def extract_uniprot_info(af_pdbids, UniProt_metadata_dict):
                 found_enzyme = re.search('EC=(\d+.\d+.\d+.[ \-\w+])', enzyme)
                 if found_enzyme: # extract EC code
                     pdb_value['ecIDs'].add(found_enzyme.group(1))
+            # Now look for any active or binding sites
+            for feature in UniProt_metadata_dict[uniprot]['features']:
+                if feature[0] == 'ACT_SITE':
+                    pdb_value['ACT_SITE'].append(feature[1])
+                elif feature[0] == 'BINDING':
+                    pdb_value['BINDING'].append(feature[1])
 
     return af_pdbids
 
