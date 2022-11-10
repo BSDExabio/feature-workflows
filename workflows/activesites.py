@@ -100,7 +100,7 @@ def get_ids(af_candidates, proteinID_aln_results, PDBID_to_UniProt_map):
                 logger.warning(f'{pdbid} has no corresponding UniProt ID ...skipping')
                 total_skipped += 1
                 continue
-            af_candidates[protein]['pdbids'][pdbid] = {'ecIDs'   : [],
+            af_candidates[protein]['pdbids'][pdbid] = {'ecIDs'   : set([]),
                                                        'UniProt' : uniprotid,
                                                        'ACT_SITE': None,
                                                        'BINDING' : None}
@@ -124,7 +124,12 @@ def extract_uniprot_info(af_pdbids, UniProt_metadata_dict):
                 # Skip any UniProt proteins that are not enzymes
                 continue
             # Add all the enzymes to 'ecIDs' list
-            # af_candidates[af_protein]['pdbids']
+            for enzyme in UniProt_metadata_dict[uniprot]['ecIDs']:
+                # EC code three dot separated numbers and then a space, dash,
+                # number, or some other character
+                found_enzyme = re.search('EC=(\d+.\d+.\d+.[ \-\w+])', enzyme)
+                if found_enzyme: # extract EC code
+                    pdb_value['ecIDs'].add(found_enzyme.group(1))
 
     return af_pdbids
 
