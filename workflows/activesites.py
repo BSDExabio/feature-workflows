@@ -78,11 +78,12 @@ def validate_input_files(proteinID_model_qualities,
     return
 
 
-def get_pdbids(af_candidates, proteinID_aln_results):
+def get_ids(af_candidates, proteinID_aln_results, PDBID_to_UniProt_map):
     """ Look up the PDB IDs for all the AF candidate proteins
 
         :param af_candidates: dict of alphafold proteins
         :param proteinID_aln_results: dict of proteins containing PDB IDs
+        :param PDBID_to_UniProt_map: to look up UniProt ID for PDB IDs
         :returns: updated af_candidates dict with ['pdbids'] a list of PDB Is
     """
     for protein in af_candidates.keys():
@@ -92,9 +93,15 @@ def get_pdbids(af_candidates, proteinID_aln_results):
             # Target Path is just a capture of the fully qualified path to a
             # PDB file for a protein.  So we use path string manipulation to
             # extract the PDB ID, which is just the path stem.
-            af_candidates[protein]['pdbids'][Path(pdbid_path).stem] = {'ecIDs' : [],
-                                                                       'ACT_SITE' : None,
-                                                                       'BINDING' : None}
+            pdbid = Path(pdbid_path).stem
+            uniprotid = PDBID_to_UniProt_map.get(pdbid, None)
+            if uniprotid is None:
+                logger.warning(f'{pdbid} has no corresponding UniProt ID ...skipping')
+                continue
+            af_candidates[protein]['pdbids'][pdbid] = {'ecIDs'   : [],
+                                                       'UniProt' : uniprotid,
+                                                       'ACT_SITE': None,
+                                                       'BINDING' : None}
 
     return toolz.valfilter(lambda x: x['pdbids'] != [], af_candidates)
 
@@ -107,10 +114,14 @@ def extract_uniprot_info(af_pdbids, UniProt_metadata_dict):
     :return: interesting UniProt info
     """
     for af_protein in af_candidates.keys():
-        for pdb_protein in af_candidates[af_protein]['pdbids']:
+        for pdb_protein in af_candidates[af_protein]['pdbids'].keys():
+            if pdb_protein not in UniProt_metadata_dict:
+                logger.warning(f'{pdb_protein} not in UniProt dictionary.')
+                continue
             if UniProt_metadata_dict[pdb_protein]['ecIDs'] == []:
                 # Skip any UniProt proteins that are not enzymes
                 continue
+            # Add all the enzymes to 'ecIDs' list
             af_candidates[af_protein]['pdbids']
 
 
@@ -156,7 +167,7 @@ if __name__ == '__main__':
 
     # Next we grab all the corresponding PDB IDs for those candidates to later
     # use for looking up info in UniProt.
-    af_with_pdbids = get_pdbids(af_candidates, proteinID_aln_results)
+    af_with_pdbids = get_ids(af_candidates, proteinID_aln_results, PDBID_to_UniProt_map)
 
     # Now we extract all the goodness from UniProt for each PDB ID
     results = extract_uniprot_info(af_with_pdbids, UniProt_metadata_dict)
