@@ -10,6 +10,7 @@ import pickle
 import logging
 import sys
 from pathlib import Path
+import re
 
 import toolz
 import pandas as pd
@@ -79,30 +80,40 @@ def validate_input_files(proteinID_model_qualities,
 
 def get_pdbids(af_candidates, proteinID_aln_results):
     """ Look up the PDB IDs for all the AF candidate proteins
+
         :param af_candidates: dict of alphafold proteins
         :param proteinID_aln_results: dict of proteins containing PDB IDs
-        :returns: dataframe of PDB IDs associated with corresponding protein
+        :returns: updated af_candidates dict with ['pdbids'] a list of PDB Is
     """
-    rows = [] # will container rows of dicts to convert to dataframe
-
     for protein in af_candidates.keys():
-        af_candidates[protein]['pdbids'] = []
+        af_candidates[protein]['pdbids'] = {}
+        af_candidates[protein]['maxTMscore'] = proteinID_aln_results[protein]['maxTMscore']
         for pdbid_path in proteinID_aln_results[protein]['Target Path']:
             # Target Path is just a capture of the fully qualified path to a
             # PDB file for a protein.  So we use path string manipulation to
             # extract the PDB ID, which is just the path stem.
-            af_candidates[protein]['pdbids'].append(Path(pdbid_path).stem)
+            af_candidates[protein]['pdbids'][Path(pdbid_path).stem] = {'ecIDs' : [],
+                                                                       'ACT_SITE' : None,
+                                                                       'BINDING' : None}
 
-    return af_candidates
+    return toolz.valfilter(lambda x: x['pdbids'] != [], af_candidates)
 
 
-def extact_uniprot_info(af_pdbids, UniProt_metadata_dict):
-    """ Look up intersting UniProt information by PDB ID
+def extract_uniprot_info(af_pdbids, UniProt_metadata_dict):
+    """ Look up interesting UniProt information by PDB ID
 
     :param af_pdbids: from which to cross-reference
     :param UniProt_metadata_dict: of UniProt in which to look up IDs
     :return: interesting UniProt info
     """
+    for af_protein in af_candidates.keys():
+        for pdb_protein in af_candidates[af_protein]['pdbids']:
+            if UniProt_metadata_dict[pdb_protein]['ecIDs'] == []:
+                # Skip any UniProt proteins that are not enzymes
+                continue
+            af_candidates[af_protein]['pdbids']
+
+
     return None
 
 
@@ -148,6 +159,6 @@ if __name__ == '__main__':
     af_with_pdbids = get_pdbids(af_candidates, proteinID_aln_results)
 
     # Now we extract all the goodness from UniProt for each PDB ID
-    results = extact_uniprot_info(af_with_pdbids, UniProt_metadata_dict)
+    results = extract_uniprot_info(af_with_pdbids, UniProt_metadata_dict)
 
     logger.info('Done')
