@@ -9,6 +9,7 @@ import argparse
 import pickle
 import logging
 import sys
+from pathlib import Path
 
 import toolz
 import pandas as pd
@@ -76,6 +77,26 @@ def validate_input_files(proteinID_model_qualities,
     return
 
 
+def get_pdbids(af_candidates, proteinID_aln_results):
+    """ Look up the PDB IDs for all the AF candidate proteins
+        :param af_candidates: dict of alphafold proteins
+        :param proteinID_aln_results: dict of proteins containing PDB IDs
+        :returns: dataframe of PDB IDs associated with corresponding protein
+    """
+    rows = [] # will container rows of dicts to convert to dataframe
+
+    for protein in af_candidates.keys():
+        for pdbid_path in proteinID_aln_results[protein]['Target Path']:
+            row = {'protein' : protein,
+                   'pdbid' : Path(pdbid_path).stem}
+            # We need to append copy else we're going to just have the same
+            # record duplicated in all the rows due to overwriting.
+            rows.append(row.copy())
+
+    return pd.DataFrame(rows)
+
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Utility for finding active '
                                                  'sites for proteins processed '
@@ -109,5 +130,10 @@ if __name__ == '__main__':
     af_candidates = toolz.valfilter(lambda x: x['ptms'] > 0.7,
                                     proteinID_model_qualities)
 
+    logger.info(f'Have {len(af_candidates)} AF candidates out of {len(proteinID_model_qualities)}')
+
+    # Next we grab all the corresponding PDB IDs for those candidates to later
+    # use for looking up info in UniProt.
+    af_pdbids = get_pdbids(af_candidates, proteinID_aln_results)
 
     logger.info('Done')
