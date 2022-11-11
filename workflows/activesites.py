@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-""" Given a set of Alphafold2 proteins, find any active sites as identified
-by similar proteins found via tmalign and uniprot.
+""" Given a set of Alphafold2 proteins, find any active or binding sites as identified
+by similar proteins found via tmalign and UniProt.
 
 Writes out everything into JSON format since the output is a complex tree.  I.e.,
 not a nice flat table.
