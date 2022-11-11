@@ -2,8 +2,25 @@
 """ Given a set of Alphafold2 proteins, find any active sites as identified
 by similar proteins found via tmalign and uniprot.
 
+Writes out everything into JSON format since the output is a complex tree.  I.e.,
+not a nice flat table.
+
 Exits with a 0 if ok, 1 if the model quality file is wrong, 2 if the alignment
 results files is wrong, and 3 if the UniProp metadata file is wrong.
+
+usage: activesites.py [-h] model_quality alignment_results pdb_to_uniprot uniprot_metadata out_file
+
+Utility for finding active sites for proteins processed by alphafold2
+
+positional arguments:
+  model_quality      Model quality pickle file
+  alignment_results  Alignment results pickle file
+  pdb_to_uniprot     PDB to UniProt mapping pickle file
+  uniprot_metadata   UniProt metadata pickle file
+  out_file           Where to write the JSON output
+
+options:
+  -h, --help         show this help message and exit
 """
 import argparse
 import pickle
