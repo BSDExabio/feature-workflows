@@ -11,9 +11,11 @@ import logging
 import sys
 from pathlib import Path
 import re
+import json
 
 import toolz
 import pandas as pd
+from pandas import Series
 
 from rich.logging import RichHandler
 
@@ -24,6 +26,16 @@ logging.basicConfig(level='INFO', format='%(message)s',
                     datefmt="[%Y/%m/%d %H:%M:%S]",
                     handlers=[rich_handler])
 logger = logging.getLogger(__name__)
+
+
+class SetEncoder(json.JSONEncoder):
+    """ From https://stackoverflow.com/questions/8230315/how-to-json-serialize-sets """
+    def default(self, obj):
+        if isinstance(obj, set):
+            return list(obj)
+        elif isinstance(obj, Series):
+            return list(obj)
+        return json.JSONEncoder.default(self, obj)
 
 
 def load_pickle_file(filename):
@@ -137,6 +149,10 @@ def extract_uniprot_info(af_pdbids, UniProt_metadata_dict):
                 elif feature[0] == 'BINDING':
                     pdb_value['BINDING'].append(feature[1])
 
+        # Now filter out all the entries that have no enzyme stuff
+        af_value['pdbids'] = toolz.valfilter(lambda x: x['ecIDs'] != set([]),
+                                             af_value['pdbids'])
+
     return af_pdbids
 
 
@@ -152,6 +168,7 @@ if __name__ == '__main__':
     parser.add_argument('pdb_to_uniprot',
                         help='PDB to UniProt mapping pickle file')
     parser.add_argument('uniprot_metadata', help='UniProt metadata pickle file')
+    parser.add_argument('out_file', help='Where to write the JSON output')
 
     args = parser.parse_args()
 
@@ -184,4 +201,7 @@ if __name__ == '__main__':
     # Now we extract all the goodness from UniProt for each PDB ID
     results = extract_uniprot_info(af_with_pdbids, UniProt_metadata_dict)
 
-    logger.info('Done')
+    with open(args.out_file, 'w') as output:
+        output.write(json.dumps(results, indent=4, cls=SetEncoder))
+
+    logger.info(f'Wrote {args.out_file}')
