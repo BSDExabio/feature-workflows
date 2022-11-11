@@ -48,9 +48,7 @@ logger = logging.getLogger(__name__)
 class SetEncoder(json.JSONEncoder):
     """ From https://stackoverflow.com/questions/8230315/how-to-json-serialize-sets """
     def default(self, obj):
-        if isinstance(obj, set):
-            return list(obj)
-        elif isinstance(obj, Series):
+        if isinstance(obj, set) or isinstance(obj, Series):
             return list(obj)
         return json.JSONEncoder.default(self, obj)
 
