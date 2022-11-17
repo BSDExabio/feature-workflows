@@ -85,6 +85,9 @@ def get_num_workers(client):
 
 def _parse_pdb_file(pdbid_chainid,pdb_file):
     """Load the structure file to gather sequence information of the structure
+    :param pdbid_chainid: string, descriptor used for storing results; expected format AAAA_B (e.g. 2JLR_A)
+    :param pdb_file: string or path object, points to the associated PDB file for the pdbid_chainid
+    :return: step_number, subdictionary, host_information, worker_ID, start_time, stop_time, return_code
     """
     start_time = time.time()
     worker = get_worker()
@@ -93,21 +96,34 @@ def _parse_pdb_file(pdbid_chainid,pdb_file):
     try:
         u = MDAnalysis.Universe(str(pdb_file))
         sel = u.select_atoms('protein')
-        start_resid = 
+        start_resid = sel.residues[-1].resid
         end_resid   = sel.residues[-1].resid
+        # need to check for non-standard aa resnames that MDAnalysis cannot parse into a sequence.
+        # replace these nonstandard resnames with their closest analog 
+        # MSE -> MET, PYL -> LYS, SEC -> CYS; list may be incomplete and so this may fail for rare cases
+        # standard residues that MDAnalysis comprehends: https://userguide.mdanalysis.org/1.1.1/standard_selections.html
+        for resid in range(sel.n_residues):
+            if sel.residues[resid].resname == 'MSE':
+                sel.residues[resid].resname = 'MET'
+            elif sel.residues[resid].resname == 'PYL':
+                sel.residues[resid].resname = 'LYS'
+            elif sel.residues[resid].resname == 'SEC':
+                sel.residues[resid].resname = 'CYS'
         seq = sel.residues.sequence().seq
         pdb_dict['first_resid'] = sel.residues[0].resid
         pdb_dict['last_resid']  = sel.residues[-1].resid
-        pdb_dict['struct_seq']  = sel.residues.sequence().seq
+        pdb_dict['struct_seq']  = sel.residues.sequence(format='string')
         return_code = 0
     except Exception as e:
-        print(f'failed to load {pdb_file} into MDAnalysis to gather residue indices and sequence. Exception: {e}', file=sys.stdout, flush=True)
+        print(f'failed to load {pdb_file} into MDAnalysis and gather residue indices and sequence. Exception: {e}', file=sys.stdout, flush=True)
     
     stop_time = time.time()
     return 0, {pdbid_chainid: pdb_dict}, platform.node(), worker.id, start_time, stop_time, return_code
 
 def _query_rcsb(pdbid_chainid):
     """Gather UniProt ID of a pdbID-chainID string using RCSB graphql request
+    :param pdbid_chainid: string, expected format AAAA_B (e.g. 2JLR_A) where AAAA is a PDB ID and B is the chain. 
+    :return: step_number, subdictionary, host_information, worker_ID, start_time, stop_time, return_code
     """
     start_time = time.time()
     worker = get_worker()
@@ -125,6 +141,8 @@ def _query_rcsb(pdbid_chainid):
 
 def _query_uniprot_flat_file(uniprotid):
     """Gather UniProt flat file metadata associated with a uniprotid
+    :param uniprotid: string, numerous formats; expected to be associated with an entry in the UniProtKB database
+    :return: step_number, subdictionary, host_information, worker_ID, start_time, stop_time, return_code
     """
     start_time = time.time()
     worker = get_worker()
@@ -149,8 +167,8 @@ def _blast_aln(structure_dict,uniprotid_dict,blastp_path):
     return_code = -9999
     try:
         # unfortunately need to write fasta files for blastp to run
-        # query will always be the structure sequence
-        # subject will always be the uniprot flat file sequence
+        # query will always be the PDBID_CHAINID structure's sequence
+        # subject will always be the uniprot flat file's sequence
         with open(f'{worker.id}_query.fasta','w') as fsta:
             fsta.write(f">query\n{structure_dict['struct_seq']}")
         with open(f'{worker.id}_sbjct.fasta','w') as fsta:
