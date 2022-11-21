@@ -141,6 +141,7 @@ def _parse_pdb_file(pdb_file):
         # replace these nonstandard resnames with their closest analog 
         # MSE -> MET, PYL -> LYS, SEC -> CYS; list may be incomplete and so this may fail for rare cases
         # standard residues that MDAnalysis comprehends: https://userguide.mdanalysis.org/1.1.1/standard_selections.html
+        ### NOTE: since I am using the "protein" atom selection keyword in the line above, I'm not confident if this chunk of code is truly necessary; the protein selection keyword specifically searches for atoms associated with residues that are in the standard residue name list... More testing necessary... 
         for resid in range(sel.n_residues):
             if sel.residues[resid].resname == 'MSE':
                 sel.residues[resid].resname = 'MET'
@@ -361,6 +362,10 @@ if __name__ == '__main__':
         pdbid_chainid = ids[0]
         uniprotid     = ids[1]
         pdbid_chainid_metadata_dict[pdbid_chainid]['uniprotID_aln'][uniprotid] = results
+
+    # save dictionary of uniprot accession id meta data
+    with open('pdbid_chainid_metadata.pkl', 'wb') as out:
+        pickle.dump(pdbid_chainid_metadata_dict,out)
 
     # close log files and shut down the cluster.
     timings_file.close()
