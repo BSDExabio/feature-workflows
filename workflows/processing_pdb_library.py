@@ -344,6 +344,7 @@ if __name__ == '__main__':
     parser.add_argument('--input-list-file', '-inp', required=True, help='list file that contains the paths to pdb files. Stem of the file paths is assumed to be a PDBID_CHAINID format.')
     parser.add_argument('--timings-file', '-ts', required=True, help='CSV file for protein processing timings')
     parser.add_argument('--tskmgr-log-file', '-log', required=True, help='string that will be used to store logging info for this run')
+    parser.add_argument('--blastp-path', '-blastp', required=True, help='file path to the blastp executable')
     args = parser.parse_args()
 
     # start dask client.
@@ -362,7 +363,7 @@ if __name__ == '__main__':
     main_logger.info(f'Dask parameters:\n{dask_parameter_string}')
    
     with open(args.input_list_file,'r') as list_file:
-        pdbid_chainid_files = [Path(line.strip()) for line in list_file.readlines()]
+        pdbid_chainid_files = [Path(line.split()[0]) for line in list_file.readlines()]
     main_logger.info(f'{len(pdbid_chainid_files)} PDBID_CHAINID files will be parsed.')
 
     # set up timing log file.
@@ -467,7 +468,7 @@ if __name__ == '__main__':
         # and
         # check to see if the 'struct_seq' key is present in the 
         # pdbid_chainid_metadata_dict subdictionary #UNNECESSARY
-        if not uniprotid and 'struct_seq' in pdbid_chainid_metadata_dict[pdbid_chainid].keys():
+        if uniprotid and 'struct_seq' in pdbid_chainid_metadata_dict[pdbid_chainid].keys():
             # submit a task to run the _blast_aln function, aligning structure
             # sequence to the respective UniProt flat file's sequence
             struct_seq = pdbid_chainid_metadata_dict[pdbid_chainid]['struct_seq']
@@ -479,6 +480,11 @@ if __name__ == '__main__':
         task_num, results, ids, hostname, workerid, start, stop, return_code = finished_task.result()
         pdbid_chainid = ids[0]
         uniprotid     = ids[1]
+
+        # log task timing information
+        append_timings(timings_csv,timings_file,hostname,workerid,start,stop,uniprotid,task_num,return_code)
+        main_logger.info(f'The blastp alignment run between {pdbid_chainid} and {uniprotid} sequences has completed. Return code: {return_code}. Took {stop - start} seconds.')
+
         pdbid_chainid_metadata_dict[pdbid_chainid]['uniprotID_aln'][uniprotid] = results
         pdbid_chainid_metadata_dict[pdbid_chainid]['uniprotID_aln'][uniprotid]['features'] = []
         ### logic:
