@@ -480,6 +480,44 @@ if __name__ == '__main__':
         pdbid_chainid = ids[0]
         uniprotid     = ids[1]
         pdbid_chainid_metadata_dict[pdbid_chainid]['uniprotID_aln'][uniprotid] = results
+        pdbid_chainid_metadata_dict[pdbid_chainid]['uniprotID_aln'][uniprotid]['features'] = []
+        ### logic:
+        # features are lists of 3+ elements; element 1 holds the indices of
+        # residue(s) that describe said feature; these resids are in seq space
+        # of the uniprot sequence and are 1-indexed.
+        # Need to check that a feature is within the aligned region of the two
+        # sequences by boolean testing if feat_resid(s) are in 
+        # range(sbjct_start,sbjct_end+1); 
+        
+        # all indices at the moment are 1-indexed so no need to worry about
+        # shifting indices.
+        # seq_aln_delta: mapping shift for sequence alignment; 
+        #                sbjct_start to query_start 
+        # struct_delta:  mapping shift from struct_seq to structure_resids
+        #                struct_seq was pulled from the pdb file so first index
+        #                is 1 and maps to the residues resid in the pdb file. 
+        seq_aln_delta = results['query_start'] - results['sbjct_start']
+        struct_delta  = pdbid_chainid_metadata_dict[pdbid_chainid]['struct_first_resid'] - 1
+        for feature in uniprot_metadata_dict[uniprotid]['features']:
+            flat_file_resindex = [int(index) for index in feature[1].split('..')]
+            # flat_file_resindex can be a list of one or two ints; if any of 
+            # these ints is within the range(sbjct_start,sbjct_end), then we are
+            # interested in what that feature is and wanna convert its residue
+            # range to a structure residue indexed range
+            # this conversion requires a couple hops to do:
+            # the aln's sbjct resid to the aln's query resids (all 1-indexed)
+            # and then
+            # from aln's query resids to the structure's residue-indexing, which
+            # is not necessarily one-indexed
+            if sum([seqindex in list(range(results['sbjct_start'],results['sbjct_end']+1)) for seqindex in flat_file_resindex]) >= 1:
+                struct_resindex = [resindex + seq_aln_delta + struct_delta for resindex in flat_file_resindex]
+                # these struct_resindex numbers may not correspond well to the 
+                # structure_seq because that sequence is naive of missing 
+                # residues (whether unresolved in the structure or 
+                # non-standard); these missing residues will appear as gaps in
+                # the query alignment elements from the list of tuples
+                feature[1] = struct_resindex
+                pdbid_chainid_metadata_dict[pdbid_chainid]['uniprotID_aln'][uniprotid]['features'].append(feature)
 
     # save dictionary of uniprot accession id meta data
     with open('pdbid_chainid_metadata.pkl', 'wb') as out:
