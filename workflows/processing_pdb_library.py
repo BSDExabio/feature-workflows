@@ -8,6 +8,9 @@ import csv
 import pandas
 import pickle
 import MDAnalysis
+from io import StringIO
+from Bio.Blast.Applications import NcbiblastpCommandline
+from Bio.Blast import NCBIXML
 
 import dask
 import dask.config
@@ -21,8 +24,8 @@ import uniprot_query
 ### LOGGING FUNCTIONS
 #######################################
 
-def append_timings(csv_writer, file_object, hostname, worker_id, start_time, stop_time,
-                   query, task_type, return_code):
+def append_timings(csv_writer, file_object, hostname, worker_id, start_time, 
+                   stop_time,query, task_type, return_code):
     """ append the task timings to the CSV timings file
     :param csv_writer: CSV to which to append timings
     :param file_object: file object associated with the CSV
@@ -31,7 +34,8 @@ def append_timings(csv_writer, file_object, hostname, worker_id, start_time, sto
     :param start_time: start time in *NIX epoch seconds
     :param stop_time: stop time in same units
     :param query: query used as input to a task
-    :param task_type: integer used to denote which step of the workflow has been performed
+    :param task_type: integer used to denote which step of the workflow has 
+                      been performed
     :param return_code: result of the task; 1=successful, 0=failure
     """
     csv_writer.writerow({'hostname'   : hostname,
@@ -105,15 +109,17 @@ def get_pdbid_chainid(pdb_file):
 #######################################
 # Since tasks 0 to 2 are gonna be strung together and parsed in the same 
 # `as_completed' for-loop, we need their function's output to be 
-# similarly formatted.
+# similarly formatted, even if these similarities are superficial.
 # Output format: 
 #       task_num: a number to denote which task in the workflow has been 
 #                 completed.
-#       results: a dictionary of a dictionary. The inner dictionary can be 
-#                filled with any key:value pairs; the sole key for the outer
-#                dictionary should be the relevant ID that was parsed.
+#       results: a dictionary. The inner dictionary can be filled with any 
+#                key:value pairs; the sole key for the outer dictionary should
+#                be the relevant ID that was parsed.
 #       hostname: a string that describes the platform/compute node the task
 #                 was performed on.
+#       worker_id: a string that describes the dask worker that performed
+#                  the task
 #       start,stop: epoch times for when the task began and finished.
 #       return_code: integer value; 0 if the job successfully completed all
 #                    necessary tasks; !=0 if the task errored out.
@@ -121,10 +127,28 @@ def get_pdbid_chainid(pdb_file):
 # step0
 def _parse_pdb_file(pdb_file):
     """Load the structure file to gather sequence information of the structure
-    :param pdb_file: string or path object, points to PDB file that has some form of PDBID_CHAINID identifier. The get_pdbid_chainid() is used to gather that information. 
-    :return: step_number, subdictionary, host_information, worker_ID, start_time, stop_time, return_code
+    :param pdb_file: string or path object, points to PDB file that has some 
+                     form of PDBID_CHAINID identifier. The get_pdbid_chainid()
+                     is used to gather that information. 
+    :return: step_number, subdictionary, host_information, worker_id, 
+                start_time, stop_time, return_code
+             step_number: int, just denoting which step in the process has been
+                          completed; 0 for the _parse_pdb_file function. 
+             subdictionary: dictionary of a dictionary; format:
+                            {'PDBID_CHAINID': {'structure_path': str,
+                                               'struct_first_resid': int,
+                                               'struct_last_resid': int,
+                                               'struct_seq': str}
+                                            }
+             host_information: string, denotes what hardware resources were 
+                               used for this task.
+             worker_id: string, denotes which dask worker performed this task.
+             start_time,stop_time: floats, epoch times when the task began and 
+                                   finished, respectively.
+             return_code: int, 0 if successfully completed, -9999 otherwise
 
-    NOTE: this function assumes only a single chain is present in the structure file; will need to rework this is applied to a multi-chained structure
+    NOTE: this function assumes only a single chain is present in the structure
+          file; will need to rework this is applied to a multi-chained structure
     """
     start_time = time.time()
     worker = get_worker()
@@ -137,11 +161,18 @@ def _parse_pdb_file(pdb_file):
         sel = u.select_atoms('protein')
         start_resid = sel.residues[-1].resid
         end_resid   = sel.residues[-1].resid
-        # need to check for non-standard aa resnames that MDAnalysis cannot parse into a sequence.
+        # need to check for non-standard aa resnames that MDAnalysis cannot 
+        # parse into a sequence.
         # replace these nonstandard resnames with their closest analog 
-        # MSE -> MET, PYL -> LYS, SEC -> CYS; list may be incomplete and so this may fail for rare cases
-        # standard residues that MDAnalysis comprehends: https://userguide.mdanalysis.org/1.1.1/standard_selections.html
-        ### NOTE: since I am using the "protein" atom selection keyword in the line above, I'm not confident if this chunk of code is truly necessary; the protein selection keyword specifically searches for atoms associated with residues that are in the standard residue name list... More testing necessary... 
+        # MSE -> MET, PYL -> LYS, SEC -> CYS; 
+        # list may be incomplete and so this may fail for rare cases
+        # standard residues that MDAnalysis comprehends: 
+        # https://userguide.mdanalysis.org/1.1.1/standard_selections.html
+        ### NOTE: since I am using the "protein" atom selection keyword in the 
+        #         line above, I'm not confident if this chunk of code is truly 
+        #         necessary; the protein selection keyword specifically 
+        #         searches for atoms associated with residues that are in the 
+        #         standard residue name list... More testing necessary... 
         for resid in range(sel.n_residues):
             if sel.residues[resid].resname == 'MSE':
                 sel.residues[resid].resname = 'MET'
@@ -149,7 +180,6 @@ def _parse_pdb_file(pdb_file):
                 sel.residues[resid].resname = 'LYS'
             elif sel.residues[resid].resname == 'SEC':
                 sel.residues[resid].resname = 'CYS'
-        seq = sel.residues.sequence().seq
         pdb_dict['struct_first_resid'] = sel.residues[0].resid
         pdb_dict['struct_last_resid']  = sel.residues[-1].resid
         pdb_dict['struct_seq']  = sel.residues.sequence(format='string')
@@ -163,18 +193,37 @@ def _parse_pdb_file(pdb_file):
 # step 1
 def _query_rcsb(step0_results):
     """Gather UniProt ID of a pdbID-chainID string using RCSB graphql request
-    :param step0_results: tuple, element 1 of this tuple is the results dictionary output from step0, with the sole key should have the expected format AAAA_B (e.g. 2JLR_A) where AAAA is a PDB ID and B is the chain. 
-    :return: step_number, subdictionary, host_information, worker_ID, start_time, stop_time, return_code
+    :param step0_results: tuple, element 1 of this tuple is the results 
+                          dictionary output from step0, with the sole key 
+                          should have the expected format AAAA_B (e.g. 2JLR_A) 
+                          where AAAA is a PDB ID and B is the chain. 
+
+    :return: step_number, subdictionary, host_information, worker_id, 
+                start_time, stop_time, return_code
+             step_number: int, just denoting which step in the process has been
+                          completed; 1 for the _query_rcsb function. 
+             subdictionary: dictionary; format:
+                            {'PDBID_CHAINID': UniProtID}
+             host_information: string, denotes what hardware resources were 
+                               used for this task.
+             worker_id: string, denotes which dask worker performed this task.
+             start_time,stop_time: floats, epoch times when the task began and 
+                                   finished, respectively.
+             return_code: int, 0 if successfully completed, -9999 otherwise
     """
     start_time = time.time()
     worker = get_worker()
     uniprotid = None
     return_code = -9999
+    # step0_results[1] is the dictionary of a dictionary object; the sole key
+    # of the outer dictionary is the PDBID_CHAINID string that we need to 
+    # query the RCSB to gather an associated UniProt Accession ID
+    pdbid_chainid = list(step0_results[1].keys())[0]
     try:
         uniprotid = rcsb_query.query_uniprot_str(pdbid_chainid)
         return_code = 0
     except Exception as e:
-        print(f'failed to pull the uniprot accession id associated with {pdbid_chainid}. Exception: {e}', file=sys.stdout, flush=True)
+        print(f'failed to pull the UniProt accession id associated with {pdbid_chainid}. Exception: {e}', file=sys.stdout, flush=True)
 
     stop_time = time.time()
     return 1, {pdbid_chainid: uniprotid}, platform.node(), worker.id, start_time, stop_time, return_code
@@ -183,8 +232,24 @@ def _query_rcsb(step0_results):
 # step 2
 def _query_uniprot_flat_file(uniprotid):
     """Gather UniProt flat file metadata associated with a uniprotid
-    :param uniprotid: string, numerous formats; expected to be associated with an entry in the UniProtKB database
-    :return: step_number, subdictionary, host_information, worker_ID, start_time, stop_time, return_code
+    :param uniprotid: string, numerous formats; expected to be associated with 
+                      an entry in the UniProtKB database
+    :return: step_number, subdictionary, host_information, worker_id, 
+                start_time, stop_time, return_code
+             
+             step_number: int, just denoting which step in the process has been
+                          completed; 2 for the _query_uniprot_flat_file func. 
+             subdictionary: dictionary of a dictionary; format:
+                            {'UniProtID': meta_dict}
+                                meta_dict is of a very complex form. See 
+                                uniprot_query.request_uniprot_metadata for 
+                                further details
+             host_information: string, denotes what hardware resources were 
+                               used for this task.
+             worker_id: string, denotes which dask worker performed this task.
+             start_time,stop_time: floats, epoch times when the task began and 
+                                   finished, respectively.
+             return_code: int, 0 if successfully completed, -9999 otherwise
     """
     start_time = time.time()
     worker = get_worker()
@@ -201,8 +266,39 @@ def _query_uniprot_flat_file(uniprotid):
 
 
 # step 3
-def _blast_aln(structure_dict,uniprotid_dict,blastp_path,ids):
-    """Run and parse a blastp sequence alignment between the structure and flat file sequences
+def _blast_aln(structure_seq,uniprotid_seq,blastp_path,ids):
+    """Run and parse a blastp sequence alignment between the structure and flat 
+       file sequences
+
+    :param structure_seq: str, sequence from the PDBID_CHAINID structure 
+    :param uniprotid_seq: str, sequence from the UniProtID flat file
+    :param blastp_path: string, global path to the blastp executable
+    :param ids: list of strings, format: [PDBID_CHAINID,UniProtID]
+    
+    :return: step_number, subdictionary, ids, host_information, worker_id, 
+                start_time, stop_time, return_code
+             
+             step_number: int, just denoting which step in the process has been
+                          completed; 3 for the _blast_aln func. 
+             subdictionary: dictionary; format:
+                            {'query_start': int,
+                             'query_end': int,
+                             'sbjct_start': int,
+                             'sbjct_end': int,
+                             'alignment': list of tuples of len 3, format: 
+                                          (query_resname, match character, 
+                                           sbjct resname),
+                             'e-value': float,
+                             'score': float,
+                             'bits': float,
+                             'n_gaps': int}
+             ids: list of strings, format: [PDBID_CHAINID,UniProtID]
+             host_information: string, denotes what hardware resources were 
+                               used for this task.
+             worker_id: string, denotes which dask worker performed this task.
+             start_time,stop_time: floats, epoch times when the task began and 
+                                   finished, respectively.
+             return_code: int, 0 if successfully completed, -9999 otherwise
     """
     start_time = time.time()
     worker = get_worker()
@@ -213,9 +309,9 @@ def _blast_aln(structure_dict,uniprotid_dict,blastp_path,ids):
         # query will always be the PDBID_CHAINID structure's sequence
         # subject will always be the uniprot flat file's sequence
         with open(f'{worker.id}_query.fasta','w') as fsta:
-            fsta.write(f">query\n{structure_dict['struct_seq']}")
+            fsta.write(f">query\n{structure_seq}")
         with open(f'{worker.id}_sbjct.fasta','w') as fsta:
-            fsta.write(f"{uniprotid_dict['sequence']}")
+            fsta.write(f"{uniprotid_seq}")
 
         xml_output = NcbiblastpCommandline(query=f'{worker.id}_query.fasta',subject='{worker.id}_sbjct.fasta',cmd=blastp_path,outfmt=5)()[0]
         blast_record = NCBIXML.read(StringIO(xml_output))
@@ -278,7 +374,7 @@ if __name__ == '__main__':
     # if a pdbid_chainid structure file fails to be read then an incomplete dictionary will be left instead; this incomplete dictionary will only contain "structure_path" key; missing "struct_seq" and numerous other important keys
     pdbid_chainid_metadata_dict = {}
     
-    # list within which pdbid_chainid strings will be stored that were successfully parsed.
+    # list within which pdbid_chainid strings will be stored; structure files that were successfully parsed.
     pdbid_chainid_seqs = []
 
     # dictionary within which the pdbid_chainid key will map to the UniProt Accession ID value
@@ -299,13 +395,21 @@ if __name__ == '__main__':
     futures_bucket = step0_futures + step1_futures
     ac = as_completed(futures_bucket)
     for finished_task in ac:
+        # gather the task's return objects
         task_num, results, hostname, workerid, start, stop, return_code = finished_task.result()
         # step0 query_string -> pdbid_chainid
         # step1 query_string -> pdbid_chainid
         # step2 query_string -> uniprotid
         query_string = list(results.keys())[0]
+
+        # log task timing information
         append_timings(timings_csv,timings_file,hostname,workerid,start,stop,query_string,task_num,return_code)
-        # handling step 0 results:
+
+        ### handling step 0 results:
+        # whether parsing the pdb file was successful or not, store results
+        # in the pdbid_chainid_metadata_dict object
+        # if successful, append the pdbid_chainid string to pdbid_chainid_seqs
+        # list that will be used later on (step 3)
         if task_num == 0:
             pdbid_chainid_metadata_dict.update(results)
             if return_code == 0:
@@ -314,21 +418,29 @@ if __name__ == '__main__':
             else:
                 main_logger.info(f'The structure associated with {query_string} failed to be parsed. Still passing PDBID_CHAINID onto step 1 but no step 3 will be run. Return code: {return_code}. Took {stop-start} seconds.')
 
-        # handling step 1 results:
+        ### handling step 1 results:
+        # whether querying for a UniprotID was successful or not, store the
+        # results in the pdbid_to_uniprot_dict object
+        # if successful and a viable UniProtId was found, prep a subdictionary
+        # in the pdbid_chainid_metadata_dict that will be filled in step 3.
+        # Also, if the UniProtID hasn't been seen before, append the UniprotID 
+        # to the uniprotid_list and submit step 2 (_query_uniprot_flat_file)
         if task_num == 1:
             pdbid_to_uniprot_dict.update(results)
-            if return_code == 0 and results[query_string] and results[query_string] not in uniprotid_list:
+            if return_code == 0 and results[query_string]:
                 main_logger.info(f'The UniProt accession ID associated with {query_string} has been queried. Return code: {return_code}. Took {stop-start} seconds.')
                 pdbid_chainid_metadata_dict[query_string]['uniprotid_aln'] = {results[query_string] : None}
-                uniprotid_list.append(results[query_string])
-                ac.add(client.submit(_query_uniprot_flat_file,results[query_string]))
-            elif return_code == 0 and results[query_string]:
-                main_logger.info(f'The UniProt accession ID associated with {query_string} has been queried. The UniprotID has already been seen. Return code: {return_code}. Took {stop-start} seconds.')
-                pdbid_chainid_metadata_dict[query_string]['uniprotid_aln'] = {results[query_string] : None}
+                if results[query_string] not in uniprotid_list:
+                    uniprotid_list.append(results[query_string])
+                    ac.add(client.submit(_query_uniprot_flat_file,results[query_string]))
+            elif return_code == 0:
+                main_logger.info(f'No UniProt accession ID associated with {query_string}. Return code: {return_code}. Took {stop-start} seconds.')
             else:
                 main_logger.info(f'Failed to query {query_string} to gather its UniProtID. Return code: {return_code}. Took {stop-start} seconds.')
         
-        # handling step 2 results:
+        ### handling step 2 results:
+        # whether parsing the UniProtID flat file was successful or not, store
+        # the results in the uniprot_metadata_dict object
         elif task_num == 2:
             uniprot_metadata_dict.update(results)
             if return_code == 0:
@@ -348,13 +460,19 @@ if __name__ == '__main__':
 
     main_logger.info(f'Beginning to run blastp alignments between structure and uniprot sequences to get residue index mapping. {time.time()}')
     task3_futures = []
-    for pdbid_chainid in pdbid_to_uniprot_dict.keys():
+    # only loop over pdbid_chainids that were successfully parsed by step 0
+    for pdbid_chainid in pdbid_chainid_seqs:
         uniprotid = pdbid_to_uniprot_dict[pdbid_chainid]
         # check to see that the pdbid_chainid maps to a real uniprotid
         # and
-        # check to see if the 'struct_seq' key is present in the pdbid_chainid_metadata_dict subdictionary
+        # check to see if the 'struct_seq' key is present in the 
+        # pdbid_chainid_metadata_dict subdictionary #UNNECESSARY
         if not uniprotid and 'struct_seq' in pdbid_chainid_metadata_dict[pdbid_chainid].keys():
-            task3_futures.append(client.submit(_blast_aln,pdbid_chainid_metadata_dict[pdbid_chainid],uniprot_metadata_dict[uniprotid], args.blastp_path, [pdbid_chainid,uniprotid]))
+            # submit a task to run the _blast_aln function, aligning structure
+            # sequence to the respective UniProt flat file's sequence
+            struct_seq = pdbid_chainid_metadata_dict[pdbid_chainid]['struct_seq']
+            uniprot_seq = uniprot_metadata_dict[uniprotid]['sequence']
+            task3_futures.append(client.submit(_blast_aln, struct_seq, uniprot_seq, args.blastp_path, [pdbid_chainid,uniprotid]))
 
     ac = as_completed(task3_futures)
     for finished_task in ac:
