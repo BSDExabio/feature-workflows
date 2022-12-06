@@ -1,4 +1,5 @@
 
+import sys
 import argparse
 import time
 import platform
@@ -313,7 +314,7 @@ def _blast_aln(structure_seq,uniprotid_seq,blastp_path,ids):
         with open(f'{worker.id}_sbjct.fasta','w') as fsta:
             fsta.write(f"{uniprotid_seq}")
 
-        xml_output = NcbiblastpCommandline(query=f'{worker.id}_query.fasta',subject='{worker.id}_sbjct.fasta',cmd=blastp_path,outfmt=5)()[0]
+        xml_output = NcbiblastpCommandline(query=f'{worker.id}_query.fasta',subject=f'{worker.id}_sbjct.fasta',cmd=blastp_path,outfmt=5)()[0]
         blast_record = NCBIXML.read(StringIO(xml_output))
         seq_aln_dict['query_start'] = blast_record.alignments[0].hsps[0].query_start
         seq_aln_dict['query_end']   = blast_record.alignments[0].hsps[0].query_end
@@ -327,7 +328,7 @@ def _blast_aln(structure_seq,uniprotid_seq,blastp_path,ids):
         return_code = 0
         
     except Exception as e:
-        print(f'failed to run the blastp alignment. Exception: {e}')
+        print(f'failed to run the blastp alignment. Exception: {e}', file=sys.stdout, flush=True)
 
     stop_time = time.time()
     return 3, seq_aln_dict, ids, platform.node(), worker.id, start_time, stop_time, return_code
@@ -465,10 +466,10 @@ if __name__ == '__main__':
     for pdbid_chainid in pdbid_chainid_seqs:
         uniprotid = pdbid_to_uniprot_dict[pdbid_chainid]
         # check to see that the pdbid_chainid maps to a real uniprotid
-        # and
-        # check to see if the 'struct_seq' key is present in the 
-        # pdbid_chainid_metadata_dict subdictionary #UNNECESSARY
-        if uniprotid and 'struct_seq' in pdbid_chainid_metadata_dict[pdbid_chainid].keys():
+        ### and
+        ### check to see if the 'struct_seq' key is present in the 
+        ### pdbid_chainid_metadata_dict subdictionary #UNNECESSARY
+        if uniprotid: # and 'struct_seq' in pdbid_chainid_metadata_dict[pdbid_chainid].keys():
             # submit a task to run the _blast_aln function, aligning structure
             # sequence to the respective UniProt flat file's sequence
             struct_seq = pdbid_chainid_metadata_dict[pdbid_chainid]['struct_seq']
@@ -482,7 +483,7 @@ if __name__ == '__main__':
         uniprotid     = ids[1]
 
         # log task timing information
-        append_timings(timings_csv,timings_file,hostname,workerid,start,stop,uniprotid,task_num,return_code)
+        append_timings(timings_csv,timings_file,hostname,workerid,start,stop,pdbid_chainid,task_num,return_code)
         if return_code == 0:
             main_logger.info(f'The blastp alignment run between {pdbid_chainid} and {uniprotid} sequences has completed. Return code: {return_code}. Took {stop - start} seconds.')
 
@@ -506,7 +507,11 @@ if __name__ == '__main__':
             seq_aln_delta = results['query_start'] - results['sbjct_start']
             struct_delta  = pdbid_chainid_metadata_dict[pdbid_chainid]['struct_first_resid'] - 1
             for feature in uniprot_metadata_dict[uniprotid]['features']:
-                flat_file_resindex = [int(index) for index in feature[1].split('..')]
+                try:
+                    flat_file_resindex = [int(index) for index in feature[1].split('..')]
+                except:
+                    main_logger.info(f'{uniprotid}: {feature} was not parsed.')
+                    continue
                 # flat_file_resindex can be a list of one or two ints; if any of 
                 # these ints is within the range(sbjct_start,sbjct_end), then we are
                 # interested in what that feature is and wanna convert its residue
@@ -518,13 +523,14 @@ if __name__ == '__main__':
                 # is not necessarily one-indexed
                 if sum([seqindex in list(range(results['sbjct_start'],results['sbjct_end']+1)) for seqindex in flat_file_resindex]) >= 1:
                     struct_resindex = [resindex + seq_aln_delta + struct_delta for resindex in flat_file_resindex]
+                    temp_feature = copy.deepcopy(feature)
                     # these struct_resindex numbers may not correspond well to the 
                     # structure_seq because that sequence is naive of missing 
                     # residues (whether unresolved in the structure or 
                     # non-standard); these missing residues will appear as gaps in
                     # the query alignment elements from the list of tuples
-                    feature[1] = struct_resindex
-                    pdbid_chainid_metadata_dict[pdbid_chainid]['uniprotID_aln'][uniprotid]['features'].append(feature)
+                    temp_feature[1] = struct_resindex
+                    pdbid_chainid_metadata_dict[pdbid_chainid]['uniprotID_aln'][uniprotid]['features'].append(temp_feature)
         else:
             main_logger.info(f'The blastp alignment run between {pdbid_chainid} and {uniprotid} sequences failed. Return code: {return_code}. Took {stop - start} seconds.')
 
